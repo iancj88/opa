@@ -1,0 +1,14 @@
+Package: opa
+Type: Package
+Title: Office of Planning & Analysis Human Resource Utilties
+Version: 1.1.0
+Author: Ian C Johnson
+Maintainer: Ian C Johnson <ian.johnson2@montana.edu>
+Description: General utility functions supporting Montana State University 
+    employee data extraction, transformation, and analysis.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.1.1
+Depends: 
+    R (>= 2.10)
