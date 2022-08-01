@@ -206,24 +206,14 @@ classify_adcomp_type <- function(df,
   ecls_enquo <- enquo(ecls_col_name)
 
   df_out <- mutate(df,
-                   adcomp_type = if_else(!!posn_enquo == "4ADCMP",
-                                         "AdComp",
-                                         if_else(!!suff_enquo %in% c("SD", "SC", "SE"),
-                                                 "Stipend",
-                                                 if_else(!!posn_enquo %in% c("4ONEPY", "4OEHHD"),
-                                                         "One-Time Payment",
-                                                         if_else(!!suff_enquo %in% c("OL"),
-                                                                 "Overload",
-                                                                 if_else(!!suff_enquo == "CR",
-                                                                         "Car Allowance",
-                                                                         if_else(!!ecls_enquo == "FS" | substr(!!posn_enquo, 1,2) == "4X",
-                                                                                 "Summer Session",
-                                                                                 if_else(!!suff_enquo == "OT",
-                                                                                         "Overtime",
-                                                                                         as.character(NA)))))))))
-
-
-
+                   adcomp_type = case_when(!!posn_enquo == "4ADCMP"                ~ "AdComp",
+                                           !!suff_enquo %in% c("SD", "SC", "SE")   ~ "Stipend",
+                                           !!posn_enquo %in% c("4ONEPY", "4OEHHD") ~ "One-Time Payment",
+                                           !!suff_enquo %in% c("OL")               ~ "Overload",
+                                           !!suff_enquo == "CR"                    ~ "Car Allowance",
+                                           !!ecls_enquo == "FS" | substr(!!posn_enquo, 1,2) == "4X" ~ "Summer Session",
+                                           !!suff_enquo == "OT"                    ~"Overtime",
+                                           T ~ as.character(NA))
 
   return(df_out)
 
