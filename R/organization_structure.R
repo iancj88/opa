@@ -9,7 +9,7 @@
 #'   historical or future records are not used. Defaults to Sys.Date()
 #' @param opt_bann_conn an optional banner connection object
 #' @param opt_ftvorgn_data an optional ftvorgn dataframe in the format supplied
-#'   by msoupa::get_ftvorgn_data. If no supplied, will pull.
+#'   by opa::get_ftvorgn_data. If not supplied, will pull using this function.
 #' @param include_names a boolean specifying whether to join org titles to the
 #'   output dataframe
 #' @param new_col_name a predicate to use on teh new column names. Defaults to
