@@ -205,7 +205,8 @@ classify_job <- function(df,
                              tenure_eff_date,
                              perappt_eff_flr)
 
-    #saveRDS(df, "./df_withRankData.RDS")
+    saveRDS(df, "./tst_df_withRankData.RDS")
+    saveRDS(df, "./tst_tenure_records.RDS")
 
     tenure_records <- tenure_records %>%
       group_by(!!pidm_col_enquo) %>%
@@ -244,7 +245,7 @@ classify_job <- function(df,
   # use detailed classification function to classify ------------------------
   df_out <- df
   #TODO: pass pidm, posn, suff, title column names to detailed function. Very well may break as is lol!
-  df_out <- classify_job_detailed(df_out,
+  df_out <- opa::classify_job_detailed(df_out,
                                   posn_number_col_name = !!posn_col_enquo,
                                   suffix_col_name = !!suff_col_enquo,
                                   posn_title_col_name = !!posntitle_col_enquo,

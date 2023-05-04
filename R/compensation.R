@@ -37,14 +37,14 @@ add_longevity_perc <- function(df,
   Sys.setenv(TZ = "UTC")
   Sys.setenv(ORA_SDTZ = "UTC")
 
-  long_rates <- msuopa::longevity_rates
+  long_rates <- opa::longevity_rates
 
   df_out <- mutate(df,
                    curr_hire_flr = lubridate::floor_date(!!curr_hire_enquo,
                                                          unit = "months"),
                    long_interv = lubridate::interval(curr_hire_flr, !!as_of_date_enquo),
-                   long_years = floor(long_interv / lubridate::dyears(x = 1))) %>%
-    left_join(msuopa::longevity_rates,
+                   long_years = long_interv / lubridate::dyears(x = 1)) %>%
+    left_join(opa::longevity_rates,
               by = c("long_years" = "YearsOfService")) %>%
     rename(long_percent = PercentToBase,
            longevity_years = long_years) %>%
@@ -60,7 +60,7 @@ add_longevity_perc <- function(df,
 #' Add a job's FLSA exemption status to a dataframe
 #'
 #' Using a choosen Ecls column, map elcs to FLSA overtime exemption status.
-#' Depends on the `msuopa::ecls_flsa_exmpt_tbl` dataframe being accessible to
+#' Depends on the `opa::ecls_flsa_exmpt_tbl` dataframe being accessible to
 #' the package
 #'
 #' @param df the dataframe containing the ecls column and to which the new
@@ -78,7 +78,7 @@ add_flsa_exmpt_status <- function(df, ecls_col_name) {
   #TODO: convert to properly enquoted ecls col name
   #TODO: move flsa exemption table to opa package
   df_out <- dplyr::left_join(df_out,
-                             msuopa::ecls_flsa_exmpt_tbl,
+                             opa::ecls_flsa_exmpt_tbl,
                              by = c("ThisIsAnAbsurdColumnNamePlaceHolder123459" = "Ecls Code"))
   df_out <- dplyr::select(df_out,
                           -ThisIsAnAbsurdColumnNamePlaceHolder123459)
@@ -206,14 +206,24 @@ classify_adcomp_type <- function(df,
   ecls_enquo <- enquo(ecls_col_name)
 
   df_out <- mutate(df,
-                   adcomp_type = case_when(!!posn_enquo == "4ADCMP"                ~ "AdComp",
-                                           !!suff_enquo %in% c("SD", "SC", "SE")   ~ "Stipend",
-                                           !!posn_enquo %in% c("4ONEPY", "4OEHHD") ~ "One-Time Payment",
-                                           !!suff_enquo %in% c("OL")               ~ "Overload",
-                                           !!suff_enquo == "CR"                    ~ "Car Allowance",
-                                           !!ecls_enquo == "FS" | substr(!!posn_enquo, 1,2) == "4X" ~ "Summer Session",
-                                           !!suff_enquo == "OT"                    ~"Overtime",
-                                           T ~ as.character(NA))
+                   adcomp_type = if_else(!!posn_enquo == "4ADCMP",
+                                         "AdComp",
+                                         if_else(!!suff_enquo %in% c("SD", "SC", "SE"),
+                                                 "Stipend",
+                                                 if_else(!!posn_enquo %in% c("4ONEPY", "4OEHHD"),
+                                                         "One-Time Payment",
+                                                         if_else(!!suff_enquo %in% c("OL"),
+                                                                 "Overload",
+                                                                 if_else(!!suff_enquo == "CR",
+                                                                         "Car Allowance",
+                                                                         if_else(!!ecls_enquo == "FS" | substr(!!posn_enquo, 1,2) == "4X",
+                                                                                 "Summer Session",
+                                                                                 if_else(!!suff_enquo == "OT",
+                                                                                         "Overtime",
+                                                                                         as.character(NA)))))))))
+
+
+
 
   return(df_out)
 
@@ -253,7 +263,7 @@ get_bls_salary <- function(year,
   bls_msa <- dplyr::select(bls_msa,
                            -PRIM_STATE,
                            -AREA,
-                           -AREA_NAME,
+                           #-AREA_NAME,
                            -JOBS_1000,
                            -EMP_PRSE,
                            -MEAN_PRSE)
@@ -265,8 +275,8 @@ get_bls_salary <- function(year,
   bls_state$SCOPE <- "STATE"
   bls_state <- dplyr::select(bls_state,
                              -AREA,
-                             -ST,
-                             -STATE,
+                             #-ST,
+                             #-STATE,
                              -JOBS_1000,
                              -EMP_PRSE,
                              -MEAN_PRSE)
@@ -330,6 +340,44 @@ get_bls_salary <- function(year,
   return(bls_salaries_wide)
 }
 
+scrape_bls_soc_data <- function() {
+  require(rvest)
+  require(tidyverse)
+
+  # Set the base URL for the BLS website
+  base_url <- "https://www.bls.gov/oes/"
+
+  # Set the start and end years for the data that you want to scrape
+  start_year <- 2012
+  end_year <- 2021
+
+  # Create a vector of years to loop through
+  years <- seq(from = start_year, to = end_year)
+
+  # Create an empty data frame to store the salary data
+  salary_data <- data.frame()
+
+  # Loop through each year and scrape the salary data
+  for(year in years){
+
+    # Set the URL for the current year
+    year_url <- paste0(base_url, year, "/oes_nat.htm")
+
+    # Read the HTML from the URL
+    html <- read_html(year_url)
+
+    # Use the html_table function to extract the salary data from the HTML
+    salary_table <- html_table(html)[[3]]
+
+    # Add the year column to the salary data
+    salary_table$year <- year
+
+    # Append the salary data for the current year to the salary_data data frame
+    salary_data <- rbind(salary_data, salary_table)
+  }
+
+}
+
 #' Pull Year of OSU Faculty Salaries
 #'
 #' OSU Faculty salaries provide annual faculty salaries based on 9/10 month
@@ -346,17 +394,18 @@ get_bls_salary <- function(year,
 #' @return a dataframe containing faculty AY salary benchmarks and number of
 #'   surveyed jobs contributing to the benchmark.
 #' @export
-get_osu_salary <- function(year = 2019, pivot_long = T) {
-  suppressPackageStartupMessages({
-    require(tidyverse)
-    require(magrittr)
-    require(readxl)
-  })
+get_osu_salary <- function(year, pivot_long = T) {
+
+  require(tidyverse)
+  require(magrittr)
+  require(readxl)
 
   fpath <- "X:/Employees/EMR Report (production)/Wage Benchmark Data/OSU/"
+  fpath_full  <- paste0(fpath, "OSU_MSU_", substr(year, 3,4), "F_post.xlsx")
+  message(paste0("Importing OSU Salary data from ", fpath_full))
 
-  osu_salaries_wide <- read_excel(paste0(fpath, "OSU_MSU_", substr(year, 3,4), "F_post.xlsx"),
-                                 skip = 6)
+  osu_salaries_wide <- read_excel(fpath_full,
+                                  skip = 6)
 
   osu_out <- osu_salaries_wide %>%
     mutate(cip = substr(`CIP, Discipline`, 1, 6),
@@ -479,7 +528,7 @@ get_cupa_salary <- function(ay_year = 2018) {
                               "-",
                               as.numeric(substr(ay_year, 3, 4)) + 1)
 
-  fpath <- "X:/Employees/EMR Report (production)/Wage Benchmark Data/CUPA/"
+  fpath <- "X:/icj/CUPA_SalaryComparator_Dataset_Annual/cupa_benchmarks/"
   fpath <- paste0(fpath, ay_year, "-", ay_year + 1, "/")
 
   cupa_admin <- readr::read_csv(paste0(fpath, paste0("CUPA_Admin_", fpath_abbreviation, ".csv")))
@@ -696,7 +745,7 @@ summarize_stipend_fy <- function(fy_in,
 
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }
@@ -820,9 +869,191 @@ summarize_stipend_fy <- function(fy_in,
                            total_pay_all = total_payment,
                            stipend_percent)
 
-  if(write_to_file == TRUE) {
+  if (write_to_file == TRUE) {
     opa::write_report(pr_summary_out, fpath = "./stipends", fname = "stipend_summary", sheetname = fy_in)
   }
 
   return(pr_summary_out)
+}
+
+
+#' Flag NBRJOBS rows that indicate a salary adjustment
+#'
+#' @param df the dataframe containing NBRJOBS records
+#' @param include_sched_raises boolean determining if BOR scheduled raises
+#'   should be flagged
+#'
+#' @return the input dataframe with several new columns: `prev_hourly_rate`,
+#'   `percent_change`, and `hourly_change`
+#' @export
+flag_nbrjobs_sal_changes <- function(df, include_sched_raises) {
+  require(tictoc)
+  require(tidyverse)
+
+  tic("Flagged salary change data rows")
+
+  scheduled_raises <- data.frame(eff_date = c(
+                                              "2011-10-01", "2012-10-01",
+                                              "2013-10-01", "2014-10-01",
+                                              "2015-01-15", "2017-01-15",
+                                              "2019-02-01", "2020-01-01"),
+                                 raise_perc = c(.010, .020, .225, .225,
+                                                .020, .020, .020, .020),
+                                 add_hourly_amnt = c(0, 0, .12, .12, 0, 0, 0, 0)) %>%
+    mutate(eff_date = as.POSIXct(eff_date),
+           raise_perc_max = raise_perc + .001,
+           raise_perc_min = raise_perc - .001)
+
+  df_out <- df %>%
+    # track changes by  unique job ( pidm posn suff )
+    group_by(job_key) %>%
+    # algorithm requires sorting to allo,
+    # w for row by row comparison
+    # not fast, but doesn't have to be
+    # date sorts from oldest to newest by default.
+    arrange(job_key, NBRJOBS_EFFECTIVE_DATE) %>%
+    # add columns that identify if a row was a salary increase, and the previous rows.
+    # group by ensures previous row was the same job key
+    mutate(is_sal_increase = (!is.na(lag(NBRJOBS_REG_RATE)) &
+                                lag(NBRJOBS_REG_RATE) != NBRJOBS_REG_RATE) &
+             (!is.na(lag(NBRJOBS_ASSGN_SALARY)) & lag(NBRJOBS_ASSGN_SALARY) != NBRJOBS_ASSGN_SALARY) ,
+           prev_hourly_rate = if_else(!is.na(lag(NBRJOBS_REG_RATE)),
+                                      lag(NBRJOBS_REG_RATE),
+                                      as.double(NA)),
+           curr_hourly_rate = NBRJOBS_REG_RATE,
+           percent_change = (curr_hourly_rate - prev_hourly_rate)/prev_hourly_rate,
+           hourly_change = curr_hourly_rate - prev_hourly_rate,
+           curr_title = NBRJOBS_DESC,
+           prev_title = if_else(!is.na(lag(NBRJOBS_DESC)),
+                                lag(NBRJOBS_DESC),
+                                as.character(NA)),
+           is_title_change = curr_title != prev_title) %>%
+    mutate(is_sched_raise = case_when(NBRJOBS_EFFECTIVE_DATE == as.POSIXct("2011-10-01") & hourly_change == .5)
+
+    )
+
+  # NBRJOBS_EFFECTIVE_DATE %in% scheduled_raises$eff_date &
+  #   case_when(NBRJOBS_EFFECTIVE_DATE == )
+  #
+  df_out <- df_out %>% select(job_key,
+           pidm = NBRJOBS_PIDM,
+           posn = NBRJOBS_POSN,
+           suff = NBRJOBS_SUFF,
+           eff_date_nbrjobs = NBRJOBS_EFFECTIVE_DATE,
+           fte = NBRJOBS_FTE,
+           job_title = NBRJOBS_DESC,
+           is_sal_increase,
+           curr_hourly_rate,
+           prev_hourly_rate,
+           hourly_percent_change = percent_change,
+           hourly_change,
+           ecls_jobs = NBRJOBS_ECLS_CODE,
+           jcre = NBRJOBS_JCRE_CODE,
+           #fte = NBRJOBS_FTE,
+           #pay_period_sal = NBRJOBS_ASSGN_SALARY,
+           #annual_sal = NBRJOBS_ANN_SALARY,
+           status = NBRJOBS_STATUS)
+  toc()
+  return(df_out)
+}
+
+
+#' Pull Adcomp totals and reasons per EE for a single FY
+#'
+#' @param fy the numeric Fiscal Year to pull
+#' @param opt_pidm_vec an optional vector containing employee pidms
+#' @param opt_bann_conn an optional banner connection object
+#'
+#' @return
+#' @export
+pull_adcomp_data <- function(fy,
+                             opt_pidm_vec,
+                             opt_bann_conn) {
+
+  # get a banner connection if not supplied. Used to pull PERAPPT data.
+  if (missing(opt_bann_conn)) {
+    bann_conn <- opa::get_banner_conn()
+  } else {
+    bann_conn <- opt_bann_conn
+  }
+
+
+  #get adcomp earn codes
+  ptrearn_codes <- tbl(bann_conn, "PTREARN") %>%
+    select(PTREARN_CODE, PTREARN_LONG_DESC) %>%
+    distinct() %>%
+    collect()
+
+  adcomp_earn_codes <- filter(ptrearn_codes,
+                              PTREARN_CODE %in% c("SSE", "SSR", "SSA") | grepl("EX", PTREARN_CODE),
+                              PTREARN_CODE != "EXT")
+
+  adcomp_codes_vector <- adcomp_earn_codes$PTREARN_CODE
+
+  #get all nbrearn records using an adcomp earn code
+  tst <- tbl(bann_conn, "NBREARN") %>%
+    filter(NBREARN_EARN_CODE %in% adcomp_codes_vector,
+           substr(NBREARN_POSN,1,1) == "4") %>%
+    collect()
+
+  #get the payrolls that fall in the fiscal year
+  fy_paynos <- opa::return_fy_payrolls(fy = fy,
+                                       campus_pict = "4M",
+                                       opt_bann_conn = bann_conn, simplify = F)
+  pr_keys <- fy_paynos$pr_key
+
+  #get phrearn data
+  phrearn <- tbl(bann_conn, "PHREARN") %>%
+    mutate(pr_key = paste0(PHREARN_PICT_CODE, PHREARN_YEAR, PHREARN_PAYNO)) %>%
+    filter(pr_key %in% pr_keys,
+           !substr(PHREARN_POSN, 2, 2) %in% c("S", "D"))
+  if (!missing(opt_pidm_vec)) {
+    phrearn <- filter(phrearn,
+                      PHREARN_PIDM %in% opt_pidm_vec)
+  }
+
+  phrearn <- collect(phrearn)
+
+  phrearn_adcomp_rows <- filter(phrearn,
+                                PHREARN_EARN_CODE %in% adcomp_codes_vector) %>%
+    left_join(ptrearn_codes, by = c("PHREARN_EARN_CODE" = "PTREARN_CODE"))
+
+  bad_earn_codes <- c("LNO", "MIL", "SRE", "DSL", "BON", "G&A", "LMP", "CAR",
+                      "MZG", "STI", "EPD", "TPS", "NCT", "ADD", "SPO", "CEL",
+                      "STU", "SPO", "CPO", "AXP", "PDO", "SST", "GRT")
+
+  phrearn_non_adcomp_rows <- filter(phrearn,
+                                    !PHREARN_EARN_CODE %in% adcomp_codes_vector,
+                                    !PHREARN_EARN_CODE %in% bad_earn_codes) %>%
+    left_join(ptrearn_codes, by = c("PHREARN_EARN_CODE" = "PTREARN_CODE"))
+
+  adcomp_summary_by_type <- phrearn_adcomp_rows %>%
+    group_by(PHREARN_PIDM, PTREARN_LONG_DESC) %>%
+    summarize(adcomp_pay_by_type = sum(PHREARN_AMT))
+  adcomp_summary <- phrearn_adcomp_rows %>%
+    group_by(PHREARN_PIDM) %>%
+    summarize(tot_adcomp_pay = sum(PHREARN_AMT))
+  nonadcomp_summary <- phrearn_non_adcomp_rows %>%
+    group_by(PHREARN_PIDM) %>%
+    summarize(tot_nonadcomp_pay = sum(PHREARN_AMT))
+
+  comp_summary <- nonadcomp_summary %>%
+    left_join(adcomp_summary_by_type, by = "PHREARN_PIDM") %>%
+    left_join(adcomp_summary, by = "PHREARN_PIDM") %>%
+    mutate(adcomp_perc = tot_adcomp_pay / tot_nonadcomp_pay,
+           adcomp_perc_by_type = adcomp_pay_by_type / tot_nonadcomp_pay)
+
+  comp_type_summary <- comp_summary %>% group_by(PHREARN_PIDM) %>% summarize(adcomp_types = paste(PTREARN_LONG_DESC))
+
+  hist(comp_summary$adcomp_perc[comp_summary$adcomp_perc < 1], breaks = 100)
+
+  adcomp_recipients <- comp_summary %>%
+    filter(tot_adcomp_pay > 0)
+
+  names_data <- opa::get_person_names_data(unique(adcomp_recipients$PHREARN_PIDM), opt_bann_conn = bann_conn)
+
+  adcomp_recipients <- left_join(adcomp_recipients, names_data, by = c("PHREARN_PIDM" = "pidm"))
+
+  return(adcomp_recipients)
+
 }

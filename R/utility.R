@@ -21,7 +21,8 @@
 #' @author Ian C Johnson
 filter_by_max_per_key <- function(df,
                                   key_col_name,
-                                  col_to_max_name) {
+                                  col_to_max_name,
+                                  opt_min = F) {
   suppressPackageStartupMessages({
     require(dplyr)
   })
@@ -57,14 +58,19 @@ filter_by_max_per_key <- function(df,
                                !!key_col_enquo)
 
   #get the max value for each key
-  max_value_per_key <- summarize(max_value_per_key,
-                                 max_vol_value = max(!!col_to_max_enquo))
+  if (opt_min == T) {
+    max_value_per_key <- summarize(max_value_per_key,
+                                   max_vol_value = min(!!col_to_max_enquo))
+  } else {
+    max_value_per_key <- summarize(max_value_per_key,
+                                   max_vol_value = max(!!col_to_max_enquo))
+  }
 
   #make a key-maxval variable to use as a filter against newly created value-key
   #column in the original dataframe
   max_value_per_key <- mutate(max_value_per_key,
                               max_value_key = paste0(!!key_col_enquo,
-                                                   max_vol_value))
+                                                     max_vol_value))
 
 
 # Filter orig df to max date rows per key ---------------------------------
@@ -467,7 +473,7 @@ format_allEE_dates <- function(df) {
   date_cols_indx <- which(names(df) %in% date_cols)
 
   # now sort through the ones with bad date formats
-  #date_cols_indx <- which(typeof(df[1,date_cols_indx]) == "POSIXcT/POSIClT")
+  # date_cols_indx <- which(typeof(df[1,date_cols_indx]) == "POSIXcT/POSIClT")
 
   for (col in date_cols_indx) {
     if (!class(df[, col])[1] == "POSIXct") {
@@ -760,9 +766,14 @@ transpose_tidyr <- function(df, names_to_str, names_from, names_out_prefix_str) 
 #' @export
 #'
 remove_na_cols <- function(df) {
-  dt <- data.table::as.data.table(df)
-  dt <- dt[,which(unlist(purrr::map(dt, function(x)!all(is.na(x))))), with = F]
-  return(dt)
+  na_cols <- colnames(df)[colSums(is.na(df)) == nrow(df)]
+  cat(paste0("Dropping the following columns that only contain NA Values",
+             paste(na_cols, sep = "/n"), collapse = "/n"))
+
+  df <- df[, !(colnames(df) %in% na_cols)]
+  # dt <- data.table::as.data.table(df)
+  # dt <- dt[,which(unlist(purrr::map(dt, function(x)!all(is.na(x))))), with = F]
+  return(df)
 }
 
 #' remove_na_rows
@@ -797,7 +808,6 @@ add_factor_levels <- function(x_col, new_level = "") {
   return(x_col)
 }
 
-
 #' Convert Date to proper Banner date format
 #'
 #' Accept Character, Date, or POSIXt class dates and return the proper
@@ -826,4 +836,165 @@ date_banner_convert <- function(date_in,
   }
 
   return(date_out)
+}
+
+
+#' make_year_day_seq
+#'
+#' create a character vector containing dates in the form "YYYY-MM-DD". Useful
+#' for incrementing banner queries by fixed dates.
+#'
+#' @param year a 4 digit integer specifying the year of character dates between
+#'   1900 and 2100
+#' @param by a string containing one of the following: "day", "week", "month",
+#'   "quarter", "year" OR a number specifying the day frequency of the date
+#'   sequence
+#' @param start_date an optional start date for the sequence. Defaults to first
+#'   of given year if null supplied
+#' @param end_date an optional end date for the sequence. Defaults to the last
+#'   day of the year if null supplied
+#' @param opt_end_of_month boolean value specifying if the function should
+#'   return the last day of the month if the 'by' param is set to "month". if
+#'   set to 'F' or not specified, uses first day of the month
+#'
+#' @return a character vector contaning dates in the form YYYY-MM-DD
+#' @export
+make_year_day_seq <- function(year, by = "day", start_date, end_date, opt_end_of_month = F) {
+  require(lubridate)
+
+  # basic parameter checks
+  stopifnot(nchar(year) == 4,
+            year > 1900,
+            year < 2100,
+            by %in% c("day",
+                      "week",
+                      "month",
+                      "quarter",
+                      "year",
+                      "days",
+                      "weeks",
+                      "months",
+                      "quarters",
+                      "years") | is.numeric(by))
+
+
+  if (opt_end_of_month == T & !by == "month") {
+    warning("opt_end_of_month set to TRUE, but 'by' set to non month value")
+  }
+
+  # if start/end date not supplied,
+  if (missing(start_date)) {
+    start_date <- paste0(year, "-01-01")
+    start_date <- as.Date(start_date)
+  }
+
+  if (missing(end_date)) {
+    end_date <- paste0(year, "-12-31")
+    end_date <- as.Date(end_date)
+  }
+
+  # convert to
+  if (is.character(start_date)) {
+    start_date <- as.Date(start_date)
+  }
+
+  if (is.character(end_date)) {
+    end_date <- as.Date(end_date)
+  }
+
+  dte_seq <- seq.Date(start_date, end_date, by = by)
+
+  if (opt_end_of_month == TRUE & by == "month") {
+    # shift forward by one month
+    dte_seq <- lubridate::ceiling_date(dte_seq, unit = "month", change_on_boundary = T)
+    # rollback one day to get the last day of the previous month
+    lubridate::day(dte_seq) <- lubridate::day(dte_seq) - 1
+    # the result should be the last day of the original month
+  }
+
+  dte_seq <- dte_seq[dte_seq <= Sys.Date()]
+  dte_seq <- as.character(dte_seq)
+
+  return(dte_seq)
+}
+
+any_column_empty <- function(x){
+  any(x == "")
+}
+
+replace_empty_NA <- function(x){
+  if_else(x == "",as.character(NA),x)
+}
+
+#' Merge two dataframe columns. If a value is contained in the superseder
+#' column, it overwrites whatever is in the orginal column.
+#'
+#' @param df the dataframe containing the original and supersendent columns.
+#' @param col_orig the unquoted name of the original column whose values may be
+#'   overwritten in cases where the superseder column contains a non NA value
+#' @param col_superseder the column containing values which will override the
+#'   values found in the original column. Column Will be dropped by function
+#'   after integration.
+#' @param opt_new_col_name an optional column name which will be used as the new
+#'   name of the original column.
+#'
+#' @return the original dataframe with the  superseder column values integrated
+#'   into the original column. The superseder column is dropped from the
+#'   dataframe. If opt_new_col_name is supplied, the original column name is
+#'   renamed to the new name.
+#' @export
+merge_columns <- function(df,
+                          col_orig,
+                          col_superseder,
+                          opt_new_col_name) {
+
+  orig_enq <- enquo(col_orig)
+  supersede_enq  <- enquo(col_superseder)
+
+  # exit the function if either the original or new columns are not in the dataframe
+  # return the original dataframe simply renaming the old column to the new
+
+  if (!quo_name(orig_enq) %in% names(df) & !quo_name(supersede_enq) %in% names(df)) {
+    message(paste0("Column ", quo_name(orig_enq), " and ", quo_name(supersede_enq), " not found in dataframe.
+                    Returning unaltered"))
+    return(df)
+  }
+
+  if (!quo_name(supersede_enq) %in% names(df)) {
+    message(paste0("Column ", quo_name(supersede_enq), " not found in dataframe.
+                    Returning unaltered"))
+    return(df)
+  }
+
+  if (!quo_name(orig_enq) %in% names(df)) {
+    message(paste0("Column ", quo_name(orig_enq), " not found in dataframe.
+                   Returning with ", quo_name(supersede_enq), " renamed to ", quo_name(orig_enq)))
+
+    df_out <- rename(df, !!orig_enq := !!supersede_enq)
+
+    return(df_out)
+  }
+
+  # both the original and superseder columns are in the dataframe. Write the
+  # number of records to be overwritten to the console via message.
+  message(paste0("ID'd ",
+                 sum(!is.na(df[,quo_name(supersede_enq)])),
+                 " ",
+                 quo_name(orig_enq),
+                 " records to be overwritten"))
+
+  df_out <- df %>%
+    mutate(!!orig_enq := if_else(!is.na(!!supersede_enq),
+                                 !!supersede_enq,
+                                 !!orig_enq)) %>%
+    select(-!!supersede_enq)
+
+  # rename the original column to the new column name if supplied to the
+  # function
+  if (!missing(opt_new_col_name)) {
+    new_col_enq <- enquo(opt_new_col_name)
+    df_out <- rename(!!new_col_enq := !!orig_enq)
+  }
+
+  return(df_out)
 }

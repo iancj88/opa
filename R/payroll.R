@@ -96,7 +96,7 @@ return_fy_payrolls <- function(fy,
   if (missing(opt_ptrcaln_data)) {
     # get a banner connection if not supplied. Used to pull PERAPPT data.
     if (missing(opt_bann_conn)) {
-      bann_conn <- msuopa::get_banner_conn()
+      bann_conn <- opa::get_banner_conn()
     } else {
       bann_conn <- opt_bann_conn
     }
@@ -123,9 +123,9 @@ return_fy_payrolls <- function(fy,
                          "PTRCALN_END_DATE") %>%
 
     mutate(PTRCALN_START_DATE = as.Date(PTRCALN_START_DATE),
-           PTRCALN_END_DATE = as.Date(PTRCALN_END_DATE),
-           pr_start_date_fy = msuopa::compute_fiscal_year(PTRCALN_START_DATE),
-           pr_end_date_fy = msuopa::compute_fiscal_year(PTRCALN_END_DATE),
+           PTRCALN_END_DATE   = as.Date(PTRCALN_END_DATE),
+           pr_start_date_fy   = opa::compute_fiscal_year(PTRCALN_START_DATE),
+           pr_end_date_fy     = opa::compute_fiscal_year(PTRCALN_END_DATE),
            fy = fy,
            pr_key = paste0(PTRCALN_PICT_CODE,
                            PTRCALN_YEAR,
@@ -208,8 +208,30 @@ pull_paynos <- function(start_date, end_date, opt_campus_code, opt_bann_conn) {
     bann_conn <- opt_bann_conn
   }
 
-  if(class(start_date) == "character" | inherits(start_date, "Date")) {start_date <- as.POSIXct(start_date)}
-  if(class(end_date) == "character" | inherits(end_date, "Date")) {end_date <- as.POSIXct(end_date)}
+  # try to convert the start date and end date to POSIXct data types
+  if (inherits(start_date, "POSIXct")) {
+    message("Identified start_date as POSIXct class")
+  }
+  else if (any(class(start_date) == "character", inherits(start_date, "Date"))) {
+    start_date <- as.POSIXct(start_date)
+    message("Converted start_date to POSIXct classt")
+  }
+  else {
+    message("Cannot convert non character and non date data types to necessary POSIXct class: start_date")
+    stop()
+  }
+
+  if (inherits(end_date, "POSIXct")) {
+    message("Identified end_date as POSIXct class")
+  }
+  else if (any(class(end_date) == "character", inherits(end_date, "Date"))) {
+    end_date <- as.POSIXct(end_date)
+    message("Converted end_date to POSIXct classt")
+  }
+  else {
+    message("Cannot convert non character and non date data types to necessary POSIXct class: end_date")
+    stop()
+  }
 
   # set to UTC time zone to ensure compatibility with Banner dates
   Sys.setenv(TZ = "UTC")
@@ -343,7 +365,7 @@ pull_pr_data <- function(job_keys,
 
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }

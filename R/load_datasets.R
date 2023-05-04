@@ -31,6 +31,10 @@
 #'   (particularly for multiple dates, etc).
 #' @param join_org_hier a boolean indicating if the org_hierarchy should be
 #'   joined based on the person's HOME_DEPT_CODE
+#' @param opt_include_demographics a boolean indicating if demographic employee
+#'   data should be included. Highly encouraged to set to FALSE to minimize
+#'   sensitive information being leaked/released.
+#'
 #'
 #' @return a list of snapshot query returns. The names of the list items specify
 #'   the date on which query is set.
@@ -45,23 +49,26 @@ get_banner_snapshot <- function(date,
                                 opt_campus_filter = "BZ",
                                 opt_rank_df,
                                 opt_tenure_df,
-                                join_org_hier = F) {
+                                join_org_hier = F,
+                                opt_include_demographics = T) {
 
-  suppressPackageStartupMessages({
-    require(ROracle)
-    require(dplyr)
-    require(tictoc)
-  })
+  require(lubridate)
+  require(ROracle)
+  require(dplyr)
+  require(tictoc)
+  require(tidyverse)
+
 
 # error check input parameters --------------------------------------------
-  if (missing(date)) {stop("date input parameter MUST be supplied as of
-
-                           revisions on 2019-07-10")
+  if (missing(date)) {
+    message(paste0("No Date Parameter Entered, pulling as of today, ",
+                   lubridate::today()))
+    date <- lubridate::today() %>% as.POSIXct()
   }
 
   # get a banner connection if not supplied
   if (missing(opt_bann_conn)) {
-    bann_conn <- get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }
@@ -83,7 +90,7 @@ get_banner_snapshot <- function(date,
     stop(stop_msg)
   }
 
-  sql_query <-  msuopa::load_sql_qry(file_path = "//helene/opa$/icj_dts/sql_files/",
+  sql_query <-  opa::load_sql_qry(file_path = "//helene/opa$/icj_dts/sql_files/",
                                      file_name = "snapshot_updated.sql")
 
   #create a formatted list of the input parameters
@@ -155,7 +162,7 @@ get_banner_snapshot <- function(date,
                     x = sql_query)
 
   # insert a banner_org_vec if provided
-  # This is depcreiated. The sql script no longer filters by org code.
+  # This is depreciated. The sql script no longer filters by org code.
   if ( !is.na(banner_org_vec)) {
 
     stopifnot(length(banner_org_vec) <= 1000)
@@ -173,7 +180,9 @@ get_banner_snapshot <- function(date,
   # insert as-of date into sql query
   if (inherits(date, "character")) {
     date <- as.POSIXct(date)
-  } else if (!inherits(date, "POSIXct")) {
+  } else if (inherits(date, "Date")) {
+    date <- as.POSIXct(date)
+  } else if (!inherits(date, "POSIXct") & !inherits(date, "Date")) {
     stop("input date must be coercible to POSIXct in get_banner_snapshot")
   }
 
@@ -262,6 +271,19 @@ get_banner_snapshot <- function(date,
                          .after = HOME_DEPT_CODE)
   }
 
+
+  if (opt_include_demographics == F) {
+    snapshot <- select(snapshot,
+                       -c(GENDER,
+                          CITIZEN_CODE,
+                          NATIONALITY_CODE,
+                          BIRTH_DATE,
+                          VIETVET,
+                          DISABLED_VET,
+                          NAME_FIRST,
+                          NAME_LAST))
+  }
+
   return(snapshot)
 }
 
@@ -285,7 +307,7 @@ get_banner_snapshot <- function(date,
 #' @return a dataframe containing all appended reviewed-snapshots.
 #' @export
 #' @author Ian C Johnson
-get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/EmployeesFY21.accdb",
+get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/EmployeesFY23.accdb",
                                      opt_tables_to_load,
                                      opt_bann_conn) {
   suppressPackageStartupMessages({
@@ -303,7 +325,7 @@ get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/Employee
 
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }
@@ -325,7 +347,7 @@ get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/Employee
     tbl_names <- tbl_names[tbl_names %in% opt_tables_to_load]
   }
 
-  if(length(tbl_names) == 0) {
+  if (length(tbl_names) == 0) {
     stop(paste0("No Tables meeting names supplied in opt_tables_to_load found in ", opt_snapshot_fpath))
   }
 
@@ -338,7 +360,7 @@ get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/Employee
   # inconsistent application/definition, they are dropped from the final dataframe
   tic("drop and add columns to snapshots")
   snapshot_data <- lapply(snapshot_data,
-                          drop_unneeded_snapshot_cols)
+                          opa::drop_unneeded_snapshot_cols)
 
   snapshot_out <- bind_rows(snapshot_data, .id = "tbl_names")
 
@@ -363,31 +385,31 @@ get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/Employee
 
 
   # add job type, race, ethn column -----------------------------------------
-  snapshot_out <- msuopa::classify_job(snapshot_out,
-                                       ecls_col_name = ECLS,
-                                       opt_bann_conn = bann_conn)
-  ethn_race <- msuopa::get_race_data(pidm_vec = unique(snapshot_out$PIDM),optional_return_all_cols = T)
+  #snapshot_out <- msuopa::classify_job(snapshot_out,
+  #                                     ecls_col_name = ECLS,
+  #                                     opt_bann_conn = bann_conn)
+  #ethn_race <- msuopa::get_race_data(pidm_vec = unique(snapshot_out$PIDM),optional_return_all_cols = T)
 
-  snapshot_out <- left_join(snapshot_out, ethn_race, by = c("PIDM" = "PIDM"))
+  #snapshot_out <- left_join(snapshot_out, ethn_race, by = c("PIDM" = "PIDM"))
 
 
   # assign faculty type -----------------------------------------------------
 
   #this should really be wrapped into opa::classify_job function...
-  snapshot_out <- mutate(snapshot_out,
-                         is_faculty = (ESKL == "20"),
-                         job_type = if_else(rank_code %in% c("1", "2", "3") &
-                                              is_faculty == T,
-                                            "Faculty TT/T",
-                                            job_type),
-                         job_type = if_else(!rank_code %in% c("1", "2", "3") &
-                                              is_faculty == T,
-                                            "Faculty NTT",
-                                            job_type),
-                         job_type = if_else(!rank_code %in% c("1", "2", "3") &
-                                              is_faculty == F,
-                                            "Faculty NTT",
-                                            job_type))
+  # snapshot_out <- mutate(snapshot_out,
+  #                        is_faculty = (ESKL == "20"),
+  #                        job_type = if_else(rank_code %in% c("1", "2", "3") &
+  #                                             is_faculty == T,
+  #                                           "Faculty TT/T",
+  #                                           job_type),
+  #                        job_type = if_else(!rank_code %in% c("1", "2", "3") &
+  #                                             is_faculty == T,
+  #                                           "Faculty NTT",
+  #                                           job_type),
+  #                        job_type = if_else(!rank_code %in% c("1", "2", "3") &
+  #                                             is_faculty == F,
+  #                                           "Faculty NTT",
+  #                                           job_type))
   toc()
 
   # return data -------------------------------------------------------------
@@ -407,7 +429,7 @@ get_opa_access_snapshots <- function(opt_snapshot_fpath = "X:/Employees/Employee
 #'   the column.
 #'
 #' @return the dataframe minus the inconsistent columns
-#'
+#' @export
 #' @author Ian C Johnson
 drop_unneeded_snapshot_cols <- function(df) {
   suppressPackageStartupMessages({
@@ -443,7 +465,6 @@ drop_unneeded_snapshot_cols <- function(df) {
     drop_col(SPRINGMONTHS) %>%
     drop_col(SPRINGFTE) %>%
     drop_col(OTHERRACE) %>%
-    drop_col(AGE) %>%
     drop_col(COLLEGE) %>%
     drop_col(OTHER_ETH) %>%
     drop_col(TOTAL) %>%
@@ -486,13 +507,13 @@ drop_unneeded_snapshot_cols <- function(df) {
 #'
 #' @param bann_conn a banner connection object supplied by the ROracle package
 #'   or `opa::get_banner_conn()` function.
-#'
 #' @return joined PERRANK, PTRRANK tables with renamed columns
+#' @export
 pull_rank_tables <- function(bann_conn) {
 
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   }
 
   suppressPackageStartupMessages({
@@ -573,7 +594,7 @@ get_rank_records <- function(return_most_recent = TRUE,
 
   # Initialize function, input parameters -----------------------------------
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }
@@ -665,7 +686,7 @@ get_rank_records <- function(return_most_recent = TRUE,
 pull_tenure_table <- function(bann_conn) {
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   }
 
   suppressPackageStartupMessages({
@@ -759,6 +780,8 @@ get_tenure_status <- function(return_most_recent = TRUE,
       message("converting character as_of_date to POSIXct (get_tenure_status)")
     } else if (inherits(opt_as_of_date, "POSIXct")) {
       as_of_date <- opt_as_of_date
+    } else if (inherits(opt_as_of_date, "Date")) {
+      as_of_date <- as.POSIXct(opt_as_of_date)
     } else {
       stop("Invalid as_of_date supplied to get_tenure_status")
     }
@@ -1113,7 +1136,7 @@ get_ftvorgn_data <- function(opt_as_of_date, opt_bann_conn) {
 #'   non-default location
 #' @param most_recent_only pull only the most recent payroll saved to the
 #'   fpath.Overrules opt_start_date.
-#' @param opt_start_date an optional POSIXct start date. Payrolls covering dates
+#' @param start_date an optional POSIXct start date. Payrolls covering dates
 #'   prior will be excluded from the returned dataframe.
 #' @param opt_end_date, an optional POSIXct end date. Payrolls covering dates
 #'   after will be exclude form the returned dataframe.
@@ -1130,7 +1153,7 @@ get_ftvorgn_data <- function(opt_as_of_date, opt_bann_conn) {
 #' @export
 get_payroll_data <- function(opt_fpath = "X:/Employees/Payroll Earnings & Labor Distrubtion by Employee/",
                              most_recent_only = T,
-                             opt_start_date,
+                             start_date = "2005-01-01",
                              opt_end_date,
                              filter_max_org = T,
                              add_pidm = T,
@@ -1146,6 +1169,14 @@ get_payroll_data <- function(opt_fpath = "X:/Employees/Payroll Earnings & Labor 
     require(lubridate)
   })
 
+  # get a banner connection if not supplied. Used to pull PERAPPT data.
+  if (missing(opt_bann_conn)) {
+    bann_conn <- opa::get_banner_conn()
+  } else {
+    bann_conn <- opt_bann_conn
+  }
+
+
   fpattern <-  "^2[0-9]{3}PR[0-9]{2}.txt"
 
   if (missing(opt_fpath)) {
@@ -1154,32 +1185,35 @@ get_payroll_data <- function(opt_fpath = "X:/Employees/Payroll Earnings & Labor 
     fpath <- opt_fpath
   }
 
+  ptrcaln <- opa::pull_paynos(start_date = "2005-01-01",
+                              end_date = Sys.Date(),
+                              opt_campus_code = "BZ",
+                              opt_bann_conn = bann_conn) %>%
+    mutate(year_pr_key = paste0(year, payno)) %>%
+    select(year_pr_key, payno_start_date, payno_end_date)
+
+
 # Determine payroll files to load -----------------------------------------
   file_df <- data.frame(fname = list.files(fpath),
                         fpath = list.files(fpath, full.names = TRUE),
                         stringsAsFactors = FALSE) %>%
     mutate(f_year =  as.numeric(substr(fname,1,4)),
            f_pr_number = as.numeric(substr(fname,7,8)),
-           f_true_year = if_else(f_pr_number == 1,
-                                 f_year - 1,
-                                 f_year),
-           f_true_month = if_else(f_pr_number == 1,
-                                  12,
-                                  f_pr_number - 1),
-           f_date_start = as.POSIXct(paste0(f_true_year, "-", f_true_month, "-01")),
-           f_date_end = as.POSIXct(paste0(f_true_year, "-", f_true_month, "-", days_in_month(as.Date(paste0(f_true_year, "-", f_true_month, "-01"))))))
+           f_year_pr_key = paste0(f_year, f_pr_number)) %>%
+    left_join(ptrcaln, by = c("f_year_pr_key" = "year_pr_key"))
 
-  # file by start_date
-  if (!missing(opt_start_date)) {
-    start_date <- as.POSIXct(opt_start_date)
-    day(start_date) <- 1
+  # filter by start_date
+    start_date <- as.POSIXct(start_date)
+
     file_df <- filter(file_df,
-                      f_date_start >= start_date)
-  }
+                      payno_end_date >= start_date)
+
   if (!missing(opt_end_date)) {
     end_date <- as.POSIXct(opt_end_date)
+
     file_df <- filter(file_df,
-                      f_date_end <= end_date | (end_date >= f_date_start & end_date <= f_date_end))
+                      payno_start_date <= end_date)
+
   }
 
   if (nrow(file_df) < 1) {
@@ -1245,7 +1279,7 @@ get_payroll_data <- function(opt_fpath = "X:/Employees/Payroll Earnings & Labor 
   }
 
 # Supplement output with true year, month and FY ------------------------
-  if(is.na(output)) {
+  if(is.null(output) | dim(output)[1] == 0 | dim(output)[2] == 0) {
     stop("Output was NA, exiting")
   }
 
@@ -1263,16 +1297,21 @@ get_payroll_data <- function(opt_fpath = "X:/Employees/Payroll Earnings & Labor 
 
   output[, `pr` := list(substr(`fname`, 7 , 8))] [,`pr` := list(as.numeric(`pr`))]
 
-  # add a 'true' year and month that corrects for payroll being on the 11 day of
-  # the following month. PR 1 of 2018 truely represents work done in December,
-  # 2017
-  output[pr == 1, true_month := 12][pr != 1, true_month := pr - 1]
-  output[pr == 1, true_year := pr_year - 1][pr != 1, true_year := pr_year]
-
-  output[true_month >= 7, fy := true_year + 1][!true_month >= 7, fy := true_year]
-  output[,`true_date` := as.POSIXct(paste0(true_year, "-",true_month,"-01"))]
+  # # add a 'true' year and month that corrects for payroll being on the 11 day of
+  # # the following month. PR 1 of 2018 truely represents work done in December,
+  # # 2017
+  # output[pr == 1, true_month := 12][pr != 1, true_month := pr - 1]
+  # output[pr == 1, true_year := pr_year - 1][pr != 1, true_year := pr_year]
+  #
+  # output[true_month >= 7, fy := true_year + 1][!true_month >= 7, fy := true_year]
+  # output[,`true_date` := as.POSIXct(paste0(true_year, "-",true_month,"-01"))]
 
   output <- data.table::setDF(output)
+
+
+  output <- mutate(output,
+                   year_pr_key = paste0(pr_year, pr)) %>%
+    left_join(ptrcaln, by = "year_pr_key")
 
 
   if (add_pidm == T) {
@@ -1343,7 +1382,7 @@ get_pidm_gid_lu <- function(opt_banner_conn, opt_pidm_vec, opt_gid_vec) {
   # get a one-time use banner connection if one is not supplied as an input
   # parameter
   if (missing(opt_banner_conn)) {
-    bnr_conn <- msuopa::get_banner_conn()
+    bnr_conn <- opa::get_banner_conn()
   } else {
     bnr_conn <- opt_banner_conn
   }
@@ -1420,6 +1459,7 @@ get_netid_pidm_gid <- function(ids_in,
     select(PIDM = SPRIDEN_PIDM,
            GID = SPRIDEN_ID,
            NETID = GORADID_ADDITIONAL_ID)
+
   # for each input type filter and pull the data.
   # use an in-line lapply function to pull if the vector of input data exceeds 1000 values
   if (type_in == "gid") {
@@ -1635,11 +1675,11 @@ dmhs_jobs_get_col_types <- function() {
 #'
 #' Load, Union, and Join all dmhs files found in "X:/Employees/EMR Report
 #' (production)/DM csv files/". Save single csv file into the same folder as
-#' "full_dmhs_data"
+#' "full_dmhs_data" and save file to OneDrive tableau extract source
 #'
 #' @return A .csv file containing the joined and unioned base, jobs datasets
 #' @export
-build_emr_dataset <- function(min_date, max_date) {
+build_dmhs_dataset <- function(min_date, max_date) {
   # load all dmhs tables saved in "X:/Employees/EMR Report (production)/DM csv files/"
 
   #TODO: build ability to set a min date in get_dmhs function. use min/max to
@@ -1652,6 +1692,9 @@ build_emr_dataset <- function(min_date, max_date) {
   opa::write_report(df = dmhs,
                     fpath = "X:/Employees/EMR Report (production)/DM csv files/",
                     fname = "full_dmhs_data", sheetname = "NA", include_xlsx = F)
+
+  opa::save_report_to_onedrive(dmhs, fname_in = "full_dmhs_data", include_xlsx_file = F)
+
 
   return(dmhs)
 }
@@ -1802,7 +1845,9 @@ get_person_names_data <- function(pidm_vec, gid_vec, opt_bann_conn) {
 #' @param bann_conn a banner connection object supplied by `opa::get_banner_conn()`
 #'
 #' @return a dataframe containing pidm and name.
-name_query <- function(pidm_vec, bann_conn) {
+name_query <- function(pidm_vec, bann_conn,  pull_all = F, filter_to_most_recent = F) {
+  require(data.table)
+
   #pull the needed filds from SPRIDEN. CHANGE_IND is used to determine which
   # record to use if there are mult records with the same activity date
   names <- dplyr::tbl(bann_conn, "SPRIDEN") %>%
@@ -1811,60 +1856,65 @@ name_query <- function(pidm_vec, bann_conn) {
                   lname = SPRIDEN_LAST_NAME,
                   fname = SPRIDEN_FIRST_NAME,
                   activity_date = SPRIDEN_ACTIVITY_DATE,
-                  change_ind = SPRIDEN_CHANGE_IND) %>%
-    dplyr::filter(pidm %in% pidm_vec,
-                  is.na(change_ind)) %>%
-    collect()
+                  change_ind = SPRIDEN_CHANGE_IND)
+
+  if (!missing(pidm_vec)) {
+    names <- names %>% dplyr::filter(pidm %in% pidm_vec,
+                                     is.na(change_ind))
+  }
+
+   names <-  collect(names)
 
   # get the max activity date. For most people, this is their most recent record
   # those people with nrows > 1 have multiple records with the same activity
   # date, they will have to be handled separately
-  max_dates <- names %>%
-    group_by(pidm) %>%
-    summarize(max_date = max(activity_date)) %>%
-    mutate(pidm_date_max = paste0(pidm,
-                                  max_date))
+  if (filter_to_most_recent == T) {
+    max_dates <- names %>%
+      group_by(pidm) %>%
+      summarize(max_date = max(activity_date)) %>%
+      mutate(pidm_date_max = paste0(pidm,
+                                    max_date))
 
 
 
 
-  # get a list of pidms for those people with multiple rows
-  mult_row_pidms <- names %>%
-    group_by(pidm) %>%
-    summarize(n = n()) %>%
-    filter(n > 1)
+    # get a list of pidms for those people with multiple rows
+    mult_row_pidms <- names %>%
+      group_by(pidm) %>%
+      summarize(n = n()) %>%
+      filter(n > 1)
 
-  # first, filter to the max activity date for each employee
-  names <- names %>%
-    mutate(pidm_dates = paste0(pidm,
-                               activity_date)) %>%
-    filter(pidm_dates %in% max_dates$pidm_date_max) %>%
-    select(pidm,
-           gid,
-           fname,
-           lname,
-           change_ind)
+    # first, filter to the max activity date for each employee
+    names <- names %>%
+      mutate(pidm_dates = paste0(pidm,
+                                 activity_date)) %>%
+      filter(pidm_dates %in% max_dates$pidm_date_max) %>%
+      select(pidm,
+             gid,
+             fname,
+             lname,
+             change_ind)
 
-  # if anybody still has multiple rows, remove the one that doesn't have an
-  # "N" change indicator specifying name change
-  #
-  # get a list of pidms for those people with multiple rows
-  mult_row_pidms <- names %>%
-    group_by(pidm) %>%
-    summarize(n = n()) %>%
-    filter(n > 1)
+    # if anybody still has multiple rows, remove the one that doesn't have an
+    # "N" change indicator specifying name change
+    #
+    # get a list of pidms for those people with multiple rows
+    mult_row_pidms <- names %>%
+      group_by(pidm) %>%
+      summarize(n = n()) %>%
+      filter(n > 1)
 
-  names <- names %>%
-    mutate(remove = ifelse(!pidm %in% mult_row_pidms$pidm,
-                           FALSE,
-                           ifelse(pidm %in% mult_row_pidms$pidm &
-                                    change_ind == "N",
-                                  FALSE,
-                                  TRUE))) %>%
-    filter(remove == FALSE) %>%
-    select(-remove,
-           -change_ind)
-
+    names <- names %>%
+      mutate(remove = ifelse(!pidm %in% mult_row_pidms$pidm,
+                             FALSE,
+                             ifelse(pidm %in% mult_row_pidms$pidm &
+                                      change_ind == "N",
+                                    FALSE,
+                                    TRUE))) %>%
+      filter(remove == FALSE) %>%
+      select(-remove,
+             -change_ind)
+  }
 
   return(names)
 }
@@ -1929,7 +1979,7 @@ pull_degree_history <- function(opt_bann_conn) {
 
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }
@@ -2088,17 +2138,23 @@ get_term_dates <- function(opt_bann_conn) {
     mutate(term_date_int = interval(term_start_date,
                                     term_end_date))
 
-  save(term_dates, file = "./data/term_dates.rda")
+  #save(term_dates, file = "./data/term_dates.rda")
 
   return(term_dates)
 }
 
 #' Build a Term code per day dataset to join term code by particula
+#'
+#' @param start_date
+#' @param end_date
 #' @param opt_bann_conn
+#'
 #'
 #' @return
 #' @export
-build_term_start_end_date_df <- function(opt_bann_conn) {
+build_term_start_end_date_df <- function(start_date,
+                                         end_date,
+                                         opt_bann_conn) {
 
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(opt_bann_conn)) {
@@ -2107,23 +2163,138 @@ build_term_start_end_date_df <- function(opt_bann_conn) {
     bann_conn <- opt_bann_conn
   }
 
-  day_dates <- seq.Date(as.Date("1997-01-01"), as.Date("2023-01-01"),
+  day_dates <- seq.Date(as.Date(start_date), as.Date(end_date),
                         by = "days")
+
   day_dates <- as.POSIXct(day_dates)
 
   day_seq_df <- data.frame(as_of_date = day_dates)
 
-  term_dates <- opa::get_term_dates(bann_conn)
+  term_dates <- get_term_dates(bann_conn)
 
-  day_seq <- left_join(day_seq_df, term_dates, by = c("as_of_date" = "term_start_date"))
-  day_seq <- mutate(day_seq, term_start_date = if_else(!is.na(term_end_date),
-                                                       as_of_date,
-                                                       as.POSIXct(NA)))
+  day_seq_df <- tidyr::crossing(day_seq_df, term_dates)
 
-  day_seq <- relocate(day_seq, term_start_date, .before = term_end_date)
-  #day_seq <- arrange(day_seq, desc(as_of_date))
+  day_seq_df <- filter(day_seq_df, as_of_date >= term_start_date,
+                       as_of_date <= term_end_date)
 
-  day_seq <- day_seq %>% do(zoo::na.locf(.))
-  return(day_seq)
+  return(day_seq_df)
 
+}
+
+
+get_teaching_adcomp <- function(opt_as_of_date,
+                                opt_snap,
+                                opt_bann_conn) {
+
+  require(tidyverse)
+  require(lubridate)
+
+  # get missing data --------------------------------------------------------
+
+  if (missing(opt_as_of_date)) {
+    as_of_date <- lubridate::today()
+  } else {
+    if (class(opt_as_of_date) == "character" | class(opt_as_of_date) == "Date") {
+      as_of_date <- as.POSIXct(opt_as_of_date)
+    } else {
+      stop(paste0(opt_as_of_date, " not coercible to POSIXct"))
+    }
+  }
+  if (missing(opt_bann_conn)) {
+    bann_conn <- opa::get_banner_conn()
+  } else {
+    bann_conn <- opt_bann_conn
+  }
+
+  if (missing(opt_snap)) {
+    snap <- opa::get_banner_snapshot(date = lubridate::today())
+  } else {
+    snap <- opt_snap
+  }
+
+  adcomp_recs <- snap %>%
+    filter(grepl("ADCMP", POSN))
+
+  # pull NBREARN records filtering by the EXN earn code and an active position
+  # in NBAJOBS (snapshot)
+  nbrearn_recs <- tbl(bann_conn,
+                      "NBREARN") %>%
+    filter(paste0(NBREARN_PIDM, NBREARN_POSN, NBREARN_SUFF) %in% !!adcomp_recs$JOB_KEY,
+           NBREARN_EARN_CODE == "EXN") %>%
+    collect() %>%
+    mutate(JOB_KEY = paste0(NBREARN_PIDM, NBREARN_POSN, NBREARN_SUFF)) %>%
+    filter(NBREARN_EFFECTIVE_DATE <= lubridate::today()) %>%
+    opa::filter_by_max_per_key(JOB_KEY, NBREARN_EFFECTIVE_DATE)
+
+  # Filter to reportable adcomp data
+  adcomp_out <- select(adcomp_recs,
+                       GID,
+                       NAME,
+                       POSN,
+                       SUFF,
+                       JOB_TITLE,
+                       JOB_START_DATE,
+                       JOB_END_DATE,
+                       PAY_PERIOD_RATE = MONTHLY_RATE,
+                       HOME_ORG_DESC,
+                       TS_ORG_DESC,
+                       JOB_KEY,
+                       starts_with("FUNDING")) %>%
+    distinct() %>%
+    filter(JOB_KEY %in% nbrearn_recs$JOB_KEY) %>%
+    mutate(AS_OF_DATE = as_of_date)
+
+  return(adcomp_out)
+}
+
+#' Join Banner eclass descriptions to fields containing 'ECLS' in their column
+#' names
+#'
+#' @param df the dataframe containing at least one ECLS column. Typically
+#'   ECLS_JOBS, ECLS_PEAM, or ECLS_POSN
+#' @param opt_bann_conn the optional banner connection object
+#'
+#' @return The input dataframe with addition ECLS_DESC columns
+#' @export
+#'
+#' @examples
+join_ecls_desc <- function(df,
+                           opt_bann_conn) {
+
+  # get a banner connection if not supplied. Used to pull PERAPPT data.
+  if (missing(opt_bann_conn)) {
+    bann_conn <- opa::get_banner_conn()
+  } else {
+    bann_conn <- opt_bann_conn
+  }
+
+  df <- select(df,
+               -matches("ECLS_.*_DESC"))
+
+  ecls_col_names <- names(df)[grepl("ECLS", names(df))]
+
+  cat(paste0("Identified the following ECLS columns:\n",
+             paste0(ecls_col_names, collapse = ", ")))
+  cat("\n")
+
+  cat("PULLING ecls description from PTRECLS banner tbl\n")
+  ptrecls <- tbl(bann_conn, "PTRECLS") %>%
+    collect() %>%
+    select(ecls_code = PTRECLS_CODE,
+           ECLS_DESC = PTRECLS_LONG_DESC)
+
+  cat("JOINING ECLS descriptions to identified Eclass columns")
+  df_out <- left_join(df,
+                      ptrecls,
+                      by = c("ECLS_JOBS" = "ecls_code")) %>%
+    rename(ECLS_JOBS_DESC = ECLS_DESC) %>%
+    left_join(ptrecls,
+              by = c("ECLS_POSN" = "ecls_code")) %>%
+    rename(ECLS_POSN_DESC = ECLS_DESC) %>%
+    left_join(ptrecls,
+              by = c("ECLS_PEAM" = "ecls_code")) %>%
+    rename(ECLS_PEAM_DESC = ECLS_DESC)
+
+
+  return(df_out)
 }

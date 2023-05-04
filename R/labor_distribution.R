@@ -106,7 +106,127 @@ calc_agg_fund_type <- function(df,
 
 }
 
+#' Aggregate funds into fund-type groupings.
+#'
+#' @description Categories defined by Megan Lasso, Terry Leist. Alternative to the
+#' `calc_agg_fund_type()` function. These groupings are appropriate for tableau
+#' visualizations for T. Leist.
+#'
+#' @param df the dataframe containing nbrjlbd information
+#' @param fund_col_name the unquoted column name containing the nbrjlbd fund
+#'   codes
+#' @param percent_col_name the unquoted column name containing the nbrjlbd
+#'   percent column name
+#' @param format one of "wide" or "long". Wide returns individual columns
+#'   containing associated funding percents. Long adds and additional column
+#'   "fund_type" that contains the character fund type description
+#' @param consolidate_rows a boolean used in conjunction with the format =
+#'   "wide" input parameter. T reduces the dataset to a single  row per job
+#' @param consolidation_key_col_name The unquoted name of the column that will
+#'   be used to aggregate the rsults if consolidate_rows = T
+#'
+#' @return
+#' @export
+#'
+#' @examples
+classify_personnel_fund_types <- function(df,
+                                          fund_col_name = NBRJLBD_FUND_CODE,
+                                          percent_col_name = NBRJLBD_PERCENT,
+                                          format = "long",
+                                          consolidate_rows = T,
+                                          consolidation_key_col_name = job_date_key) {
 
+  require(tidyverse)
+
+  stopifnot(format %in% c("wide", "long"))
+  # Current Unrestricted  Fund matches 41xxxx
+  # MAES  Fund matches 9xxxxx
+  # ES  Fund matches 0xxxxx (that is a zero)
+  # FSTS  Fund matches 1xxxxx
+  # Designated  Fund matches 43xxxx (exclude IDCs which are fund 436xxx-438xxx)
+  # Designated IDC  Fund matches 436xxx-438xxx
+  # Auxiliary Fund matches 44xxxx
+  # Restricted Sponsored  Fund matches 4Wxxxx
+  # Other Restricted  Fund matches 42xxxx
+
+  curr_unrestricted_pattern <- "^41"
+  maes_pattern <- "^9"
+  es_pattern <- "^0"
+  fsts_pattern <- "^1"
+  designated_nonidc_pattern <- "^43[^6-8]"
+  designated_idc_pattern <- "^43[6-8]"
+  aux_fund_pattern <- "^44"
+  restricted_sponsored_pattern <- "^4W"
+  restricted_other_pattern <- "^42"
+
+  fund_enquo <- enquo(fund_col_name)
+  percent_enquo <- enquo(percent_col_name)
+  key_enquo <- enquo(consolidation_key_col_name)
+  if (format == "wide") {
+    df_out <- mutate(df,
+                     is_curr_unrestricted = if_else(grepl(curr_unrestricted_pattern, !!fund_enquo),
+                                                    !!percent_enquo,
+                                                    as.numeric(NA)),
+                     is_maes = if_else(grepl(maes_pattern, !!fund_enquo),
+                                       !!percent_enquo,
+                                       as.numeric(NA)),
+                     is_es = if_else(grepl(es_pattern,
+                                           !!fund_enquo),
+                                     !!percent_enquo,
+                                     as.numeric(NA)),
+                     is_fsts = if_else(grepl(fsts_pattern, !!fund_enquo),
+                                       !!percent_enquo,
+                                       as.numeric(NA)),
+                     is_designated_nonidc = if_else(grepl(designated_nonidc_pattern, !!fund_enquo),
+                                                    !!percent_enquo,
+                                                    as.numeric(NA)),
+                     is_designated_idc = if_else(grepl(designated_idc_pattern, !!fund_enquo),
+                                                 !!percent_enquo,
+                                                 as.numeric(NA)),
+                     is_aux = if_else(grepl(aux_fund_pattern, !!fund_enquo),
+                                      !!percent_enquo,
+                                      as.numeric(NA)),
+                     is_restricted_sponsored = if_else(grepl(restricted_sponsored_pattern, !!fund_enquo),
+                                                       !!percent_enquo,
+                                                       as.numeric(NA)),
+                     is_restricted_other = if_else(grepl(restricted_other_pattern, !!fund_enquo),
+                                                   !!percent_enquo,
+                                                   as.numeric(NA)))
+    if (consolidate_rows == T) {
+      by_custom <-  set_names(quo_name(key_enquo), quo_name(key_enquo))
+      df_out <- group_by(df_out,
+                         !!key_enquo) %>%
+        summarize(curr_unrestricted_fund = sum(is_curr_unrestricted, na.rm = T),
+                  maes_fund = sum(is_maes, na.rm = T),
+                  es_fund = sum(is_es, na.rm = T),
+                  fsts_fund = sum(is_fsts, na.rm = T),
+                  designated_nonidc_fund = sum(is_designated_nonidc, na.rm = T),
+                  designated_idc_fund = sum(is_designated_idc, na.rm = T),
+                  aux_fund = sum(is_aux, na.rm = T),
+                  restriced_sponsored_fund = sum(is_restricted_sponsored, na.rm = T),
+                  restricted_other_fund = sum(is_restricted_other, na.rm = T),
+                  total_sum = sum(!!percent_enquo))
+    }
+  }
+
+  if (format == "long") {
+    df_out <- df %>%
+      mutate(fund_type = case_when(grepl(curr_unrestricted_pattern, !!fund_enquo) ~ "Current Unrestricted",
+                                   grepl(maes_pattern, !!fund_enquo) ~ "MAES",
+                                   grepl(es_pattern, !!fund_enquo) ~ "ES",
+                                   grepl(fsts_pattern, !!fund_enquo) ~ "FSTS",
+                                   grepl(designated_nonidc_pattern, !!fund_enquo) ~ "Designated Non-IDC",
+                                   grepl(designated_idc_pattern, !!fund_enquo) ~ "Designated IDC",
+                                   grepl(aux_fund_pattern, !!fund_enquo) ~ "Auxiliaries",
+                                   grepl(restricted_sponsored_pattern, !!fund_enquo) ~ "Restricted Sponsored",
+                                   grepl(restricted_other_pattern, !!fund_enquo) ~ "Restricted Other"))
+  }
+
+
+
+  return(df_out)
+
+}
 
 
 #' Pull Job Labor Distribution Records for specific job-keys and an as-of date.
@@ -257,7 +377,7 @@ process_nbrjlbd_data <- function(opt_job_lbr_dist_df,
   # check for missing input parametes ---------------------------------------
 
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }
@@ -327,7 +447,7 @@ process_nbrjlbd_data <- function(opt_job_lbr_dist_df,
 
 #' job_lbr_dist_qry
 #'
-#' internal function in the msuopa package. queries Banner given a set of pidm,
+#' internal function in the opa package. queries Banner given a set of pidm,
 #' posn, suffix job keys and returns labor distribution data from the NBRJLBD
 #' table.
 #'
@@ -342,7 +462,7 @@ process_nbrjlbd_data <- function(opt_job_lbr_dist_df,
 #' @param majority_percent_only a boolean value determining if only the majority
 #'   funding rows should be returned for each job's effective date
 #' @param bann_conn the banner connection object derived from
-#'   msuopa::get_banner_conn()
+#'   `opa::get_banner_conn()`
 #'
 #' @export
 #'
@@ -421,7 +541,7 @@ job_lbr_dist_qry <- function(job_key_vec,
 get_account_lu <- function(as_of_date, opt_bann_conn) {
   # get a banner connection if not supplied. Used to pull PERAPPT data.
   if (missing(opt_bann_conn)) {
-    bann_conn <- msuopa::get_banner_conn()
+    bann_conn <- opa::get_banner_conn()
   } else {
     bann_conn <- opt_bann_conn
   }

@@ -1,4 +1,4 @@
- compile_rank_tenure_wide <- function(opt_tenure_data,
+compile_rank_tenure_wide <- function(opt_tenure_data,
                                       opt_rank_data,
                                       opt_bann_conn,
                                       opt_start_date,
@@ -23,7 +23,7 @@
    if (missing(opt_tenure_data) | missing(opt_rank_data)) {
      tic("pull rank and tenure data")
      if (missing(opt_bann_conn)) {
-       bann_conn <- msuopa::get_banner_conn()
+       bann_conn <- opa::get_banner_conn()
      } else {
        bann_conn <- opt_bann_conn
      }
@@ -107,7 +107,7 @@
     if (missing(opt_tenure_data) | missing(opt_rank_data)) {
        tic("pull rank and tenure data")
        if (missing(opt_bann_conn)) {
-          bann_conn <- msuopa::get_banner_conn()
+          bann_conn <- opa::get_banner_conn()
        } else {
           bann_conn <- opt_bann_conn
        }
@@ -132,4 +132,50 @@
 
 
 
+ }
+
+
+#' Calculate faculty status based on Job Type
+#'
+#' @param df datafraem containing the JOB_TYPE Column
+#'
+#' @return
+#' @export
+#'
+#' @examples
+ calc_faculty_status <- function(df) {
+   require(tidyverse)
+
+   df_out <- df %>%
+     mutate(IS_FACULTY = JOB_TYPE %in% c("Faculty TT/T", "Faculty NTT"))
+
+   cat(paste0("IDENTIFIED Faculty jobs      (",
+              sum(df_out$IS_FACULTY),
+              " records)\n"))
+
+   return(df_out)
+ }
+
+ calc_sabbatical_status <- function(df) {
+   require(tidyverse)
+
+   df_out <- df %>%
+     mutate(IS_SABBATICAL = (JOB_TYPE == "Faculty TT/T" & (FTE == .75 | FTE == .667)))
+
+   cat(paste0("IDENTIFIED Fac Sabbatical   (",
+              sum(df_out$IS_SABBATICAL),
+              " records)\n"))
+
+   return(df_out)
+ }
+
+ calc_ayfy_status <- function(df) {
+   require(tidyverse)
+
+   df_out <- df %>%
+     mutate(AY_FY = if_else(MONTHS == 26,
+                            "FY",
+                            "AY"))
+
+   return(df_out)
  }

@@ -9,7 +9,7 @@
 #'   historical or future records are not used. Defaults to Sys.Date()
 #' @param opt_bann_conn an optional banner connection object
 #' @param opt_ftvorgn_data an optional ftvorgn dataframe in the format supplied
-#'   by opa::get_ftvorgn_data. If not supplied, will pull using this function.
+#'   by msoupa::get_ftvorgn_data. If no supplied, will pull.
 #' @param include_names a boolean specifying whether to join org titles to the
 #'   output dataframe
 #' @param new_col_name a predicate to use on teh new column names. Defaults to
@@ -190,7 +190,6 @@ build_org_hierarchy <- function(ftvorgn_data,
   # Using a list of each uniqe dept
   #Only look at BZ orgs that start with a '4'
   dept_orig <- as.character(unique(ftvorgn_data$FTVORGN_ORGN_CODE))
-
 
   CoN_org_titles <- c("4M6110", "4M6109", "4M6107") #college of nursing
 
@@ -413,7 +412,7 @@ format_org_df <- function(df,
 
   # remove unneeded columns. by default 9 org columns are produced, but the max
   # org depth is only 5,6 depending on as-of date.
-  df <- msuopa::remove_na_cols(df)
+  df <- opa::remove_na_cols(df)
 
   # the order of the orgs in the hierarchy should be reversed to move from
   # broader i.e. org 400000 to increasingly specific/deep

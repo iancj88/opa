@@ -141,6 +141,7 @@ flag_bad_fte_employees <- function(df,
                                    job_key_col = JOB_KEY,
                                    suffix_col = SUFF,
                                    fte_col = FTE,
+                                   job_status_col = JOB_STATUS,
                                    max_fte_threshold = 1,
                                    write_out_df = T,
                                    write_out_fpath = "./") {
@@ -150,11 +151,13 @@ flag_bad_fte_employees <- function(df,
   job_key_enquo <- enquo(job_key_col)
   person_key_enquo <- enquo(person_key_col)
   suff_enquo <- enquo(suffix_col)
+  job_status_enquo <- enquo(job_status_col)
 
   stopifnot(quo_name(fte_enquo) %in% names(df))
   stopifnot(quo_name(person_key_enquo) %in% names(df))
   stopifnot(quo_name(job_key_enquo) %in% names(df))
   stopifnot(quo_name(suff_enquo) %in% names(df))
+  stopifnot(quo_name(job_status_enquo) %in% names(df))
 
   fte_per_person <- df %>%
     distinct(!!person_key_enquo,
@@ -163,8 +166,10 @@ flag_bad_fte_employees <- function(df,
     group_by(!!person_key_enquo) %>%
     filter(! (!!suff_enquo) %in% c("SD", "OL", "TF", "TM", "TL",
                                    "TR", "T3", "CR", "RF", "OT"),
+           !!job_status_enquo == "A",
            ! grepl("4[XDS]", !!job_key_enquo),
-           ! grepl("4ADCMP", !!job_key_enquo)) %>%
+           ! grepl("4ADCMP", !!job_key_enquo),
+           ! grepl("4IPFRS", !!job_key_enquo),) %>%
     summarize(tot_fte = sum(!!fte_enquo)) %>%
     filter(tot_fte > max_fte_threshold)
   fte_exceeds_pidms <- unlist(fte_per_person[,quo_name(person_key_enquo)])
@@ -451,3 +456,42 @@ flag_faculty_inconsistencies <- function(df) {
   #
 }
 
+flag_library_inconsistencies <- function(df) {
+
+}
+
+flag_bad_classified_titles <- function(df) {
+
+}
+
+flag_nonmus_tttfac <- function(df,
+                               job_type_col = job_type,
+                               mus_contract_col = MUS_CONTRACT) {
+
+  mus_contract_enquo <- enquo(mus_contract_col)
+  job_type_enquo     <- enquo(job_type_col)
+
+  df_out <- filter(df,
+                   !!job_type_enquo == "Faculty TT/T",
+                   !!mus_contract_enquo == "N")
+  return(df_out)
+}
+
+flag_bad_tttfac_titles <- function(df) {
+
+  good_titles <- c("Professor", "Associate Professor", "Assistant Professor",
+                   "Extension Agent", "Department Head", "Extension Faculty",
+                   "Extension Specialist", "ES/AES Head")
+
+  df_out <- filter(df,
+                   job_type_enquo == "Faculty TT/T",
+                   !position_title_enquo %in% good_titles)
+
+
+}
+
+highlight_na_vals <- function(df) {
+  require(visdat)
+  visdat::vis_miss(df)
+
+}
